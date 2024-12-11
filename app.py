@@ -244,6 +244,45 @@ def take_attendance():
     return render_template('take_attendance.html')
 
 
+@app.route('/attendance_statistics', methods=['GET', 'POST'])
+def attendance_statistics():
+    if os.path.exists(folder_name) and os.path.isdir(folder_name):
+        files = [f for f in os.listdir(folder_name) if f.endswith('.txt')]
+    else:
+        files = []
+
+    if not files:
+        return render_template('attendance_statistics.html', files=[], message="No attendance files found.")
+
+    if request.method == 'POST':
+        selected_file = request.form.get('file')
+        if selected_file:
+            file_path = os.path.join(folder_name, selected_file)
+
+            records = parse_attendance(file_path)
+            if records:
+                statistics = calculate_statistics(records)
+                output_pdf = os.path.join(folder_name, f"attendance_report_{selected_file.split('.')[0]}.pdf")
+                generate_pdf(statistics, output_pdf)
+
+                return jsonify({
+                    'status': 'success',
+                    'file_name': f"attendance_report_{selected_file.split('.')[0]}.pdf"
+                })
+            else:
+                return jsonify({'status': 'error', 'message': 'Failed to parse attendance file.'})
+        return jsonify({'status': 'error', 'message': 'No file selected.'})
+
+    return render_template('attendance_statistics.html', files=files)
+
+
+
+# Route to download the PDF
+@app.route('/download/<filename>')
+def download(filename):
+    return send_from_directory(folder_name, filename, as_attachment=True)
+
+
 folder_name = os.path.dirname(os.path.abspath(__file__))
 
 # Parse Attendance File
@@ -339,43 +378,7 @@ def generate_pdf(stats, output_file):
     c.save()
 
 # Route to render the main page and display files
-@app.route('/attendance_statistics', methods=['GET', 'POST'])
-def attendance_statistics():
-    if os.path.exists(folder_name) and os.path.isdir(folder_name):
-        files = [f for f in os.listdir(folder_name) if f.endswith('.txt')]
-    else:
-        files = []
 
-    if not files:
-        return render_template('attendance_statistics.html', files=[], message="No attendance files found.")
-
-    if request.method == 'POST':
-        selected_file = request.form.get('file')
-        if selected_file:
-            file_path = os.path.join(folder_name, selected_file)
-
-            records = parse_attendance(file_path)
-            if records:
-                statistics = calculate_statistics(records)
-                output_pdf = os.path.join(folder_name, f"attendance_report_{selected_file.split('.')[0]}.pdf")
-                generate_pdf(statistics, output_pdf)
-
-                return jsonify({
-                    'status': 'success',
-                    'file_name': f"attendance_report_{selected_file.split('.')[0]}.pdf"
-                })
-            else:
-                return jsonify({'status': 'error', 'message': 'Failed to parse attendance file.'})
-        return jsonify({'status': 'error', 'message': 'No file selected.'})
-
-    return render_template('attendance_statistics.html', files=files)
-
-
-
-# Route to download the PDF
-@app.route('/download/<filename>')
-def download(filename):
-    return send_from_directory(folder_name, filename, as_attachment=True)
 
 def get_google_sheet_id(subject, section, semester):
     """Retrieve the Google Sheet ID for the given semester, subject, and section."""
