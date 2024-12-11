@@ -318,7 +318,7 @@
         </div>
     </div>
 
-    <!-- View Attendance Statistics Card -->
+
     <div class="card-container">
         <div class="card">
             <div class="card-title">View Attendance Statistics</div>
@@ -358,22 +358,57 @@
             loading.style.display = 'block';
             resultSection.style.display = 'none';
 
-            setTimeout(function() {
+            const formData = new FormData(this);
+            
+            fetch('/take_attendance', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.text())
+            .then(result => {
                 loading.style.display = 'none';
                 resultSection.style.display = 'block';
-            }, 3000);
-        });
-
-        // Copy link functionality
-        document.getElementById('copy-link').addEventListener('click', function() {
-            const link = document.getElementById('sheet-link').href;
-            navigator.clipboard.writeText(link).then(function() {
-                document.getElementById('copy-success').style.display = 'block';
-                setTimeout(function() {
-                    document.getElementById('copy-success').style.display = 'none';
-                }, 2000);
+                
+                const sheetUrl = result.match(/https:\/\/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                if (sheetUrl && sheetUrl[0]) {
+                    const sheetLink = document.getElementById('sheet-link');
+                    sheetLink.href = sheetUrl[0];
+                    
+                    // Update sharing buttons
+                    updateShareButtons(sheetUrl[0]);
+                }
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                alert('Error processing attendance: ' + error.message);
             });
         });
+
+        function updateShareButtons(sheetUrl) {
+            const encodedUrl = encodeURIComponent(sheetUrl);
+            const subject = encodeURIComponent('Attendance Sheet');
+            const body = encodeURIComponent('Here is the attendance sheet: ' + sheetUrl);
+            
+            // WhatsApp sharing
+            document.getElementById('whatsapp-share').href = `https://wa.me/?text=${body}`;
+            
+            // Telegram sharing
+            document.getElementById('telegram-share').href = `https://t.me/share/url?url=${encodedUrl}&text=${subject}`;
+            
+            // Email sharing
+            document.getElementById('email-share').href = `mailto:?subject=${subject}&body=${body}`;
+            
+            // Copy link button
+            document.getElementById('copy-link').onclick = function() {
+                navigator.clipboard.writeText(sheetUrl).then(() => {
+                    const copySuccess = document.getElementById('copy-success');
+                    copySuccess.style.display = 'block';
+                    setTimeout(() => {
+                        copySuccess.style.display = 'none';
+                    }, 2000);
+                });
+            };
+        }
     </script>
 </body>
 </html>
