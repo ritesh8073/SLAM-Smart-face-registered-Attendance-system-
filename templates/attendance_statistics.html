@@ -146,50 +146,39 @@
             </div>
         </div>
         <h1>Attendance Statistics - AMC College</h1>
-        <div class="file-selection">
-            <label for="file">Choose an attendance file:</label>
-            <select name="file" id="file">
-                <option value="">-- Select a file --</option>
-                {% for file in files %}
-                    <option value="{{ file }}">{{ file }}</option>
-                {% endfor %}
-            </select>
-            <button id="submit-btn">Submit</button>
-        </div>
+
+        <!-- Form to submit file selection -->
+        <form method="POST" action="{{ url_for('attendance_statistics') }}">
+            <div class="file-selection">
+                <label for="file">Choose an attendance file:</label>
+                <select name="file" id="file">
+                    <option value="">-- Select a file --</option>
+                    {% for file in files %}
+                        <option value="{{ file }}">{{ file }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit">Submit</button>
+            </div>
+        </form>
+
         <div id="selected-file" class="selected-file"></div>
+
         <div class="download-section" id="download-section" style="display: none;">
             <button class="download-button" id="download-btn">Download PDF Report</button>
         </div>
     </div>
+
     <footer>
         <p>Powered by AMC College CSE AI & ML Department. <a href="#">Privacy Policy</a></p>
     </footer>
 
     <script>
         $(document).ready(function() {
-            $('#submit-btn').click(function() {
+            $('form').submit(function(event) {
                 var selectedFile = $('#file').val();
-                if (selectedFile) {
-                    $.ajax({
-                        url: '/',
-                        type: 'POST',
-                        data: {file: selectedFile},
-                        success: function(response) {
-                            if (response.status === "success") {
-                                $('#selected-file').text("Selected file: " + response.file_name);
-                                $('#download-section').show();
-                                $('#download-btn').attr('onclick', "window.location.href='/download/" + response.file_name + "'");
-                                alert('Report generated successfully!');
-                            } else {
-                                alert(response.message);
-                            }
-                        },
-                        error: function() {
-                            alert('Error processing the file. Please try again.');
-                        }
-                    });
-                } else {
+                if (!selectedFile) {
                     alert('Please select a file.');
+                    event.preventDefault(); // Prevent form submission
                 }
             });
         });

@@ -5,10 +5,12 @@ import pickle
 import numpy as np
 from datetime import datetime
 from werkzeug.security import check_password_hash, generate_password_hash
-from flask import Flask, request, render_template, redirect, url_for, session, send_file
+from flask import Flask, request, render_template, redirect,jsonify,send_from_directory, url_for, session, send_file
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2.service_account import Credentials
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 # Initialize the Flask app
 app = Flask(__name__)
@@ -56,7 +58,6 @@ def load_all_students():
     except FileNotFoundError:
         pass
     return students
-
 
 
 @app.route('/', methods=['GET'])
@@ -109,7 +110,6 @@ def choose_semester():
 @app.route('/options_page', methods=['GET'])
 def options_page():
     """Display the options page."""
-    # Get the session variables to pass to the template
     semester = session.get('semester', 'Not Set')
     section = session.get('section', 'Not Set')
     subject = session.get('subject', 'Not Set')
@@ -124,6 +124,8 @@ def enroll():
     if request.method == 'POST':
         name = request.form['name']
         usn = request.form['usn']
+        semester = session.get('semester', 'Not Set')
+        section = session.get('section', 'Not Set')
         files = request.files.getlist('photos')
         encodings = []
         
@@ -148,12 +150,14 @@ def enroll():
                 if student['usn'] == usn:
                     student['name'] = name  # Update the student's name
                     student['encodings'] = encodings  # Update the face encodings
+                    student['semester'] = semester  # Update semester
+                    student['section'] = section  # Update section
                     student_exists = True
                     break
             
             # If student doesn't exist, add new entry
             if not student_exists:
-                existing_students.append({"name": name, "usn": usn, "encodings": encodings})
+                existing_students.append({"name": name, "usn": usn, "encodings": encodings, "semester": semester, "section": section})
             
             # Save all students back to pickle file
             with open(PICKLE_FILE, 'wb') as f:
@@ -213,37 +217,165 @@ def take_attendance():
                     while True:
                         try:
                             student = pickle.load(f)
-                            matches = [np.linalg.norm(face_encoding - enc) < 0.6 for enc in student['encodings']]
-                            if any(matches):
-                                present_students.add((student['name'], student['usn']))  # Add student to set
-                                break
+                            
+                            # Only consider students from the current semester and section
+                            if student['semester'] == semester and student['section'] == section:
+                                matches = [np.linalg.norm(face_encoding - enc) < 0.6 for enc in student['encodings']]
+                                if any(matches):
+                                    present_students.add((student['name'], student['usn']))  # Add student to set
+                                    break
                         except EOFError:
                             break
         
         # Load all students to get the absent students
-        absent_students = [(student['name'], student['usn']) for student in load_all_students() if (student['name'], student['usn']) not in present_students]
+        absent_students = [(student['name'], student['usn']) for student in load_all_students() if (student['name'], student['usn']) not in present_students and student['semester'] == semester and student['section'] == section]
         
         # Update attendance in Google Sheets
         update_attendance_in_sheet(sheet_id, list(present_students), absent_students, timestamp)
         
-        # Save attendance in text file
+        # Save attendance in text file in the required format
         with open(attendance_file, 'a') as report:
             report.write(f"\n--- Attendance Session: {timestamp} ---\n")
-            report.write("Present Students:\n")
-            report.writelines(f"{name} ({usn})\n" for name, usn in present_students)
-            report.write("\nAbsent Students:\n")
-            report.writelines(f"{name} ({usn})\n" for name, usn in absent_students)
+            report.write("Present Students: " + ", ".join([name for name, _ in present_students]) + "\n")
+            report.write("Absent Students: " + ", ".join([name for name, _ in absent_students]) + "\n")
         
         return f"Attendance taken for {semester} {subject} ({section}). Report saved as {attendance_file}. View Sheet: https://docs.google.com/spreadsheets/d/{sheet_id}/edit?usp=sharing"
     
     return render_template('take_attendance.html')
 
 
-@app.route('/attendance_statistics')
+folder_name = os.path.dirname(os.path.abspath(__file__))
 
+# Parse Attendance File
+def parse_attendance(file_path):
+    try:
+        attendance_records = []
+        with open(file_path, "r", encoding="utf-8") as file:
+            lines = file.readlines()
+            session_date = None
+            present = []
+            absent = []
+
+            for line in lines:
+                if line.startswith("--- Attendance Session:"):
+                    if session_date:
+                        attendance_records.append({"date": session_date, "present": present, "absent": absent})
+                    timestamp = line.split(": ")[1].strip().split(" ")[0]
+                    session_date = datetime.strptime(timestamp, "%Y-%m-%d")
+                    present = []
+                    absent = []
+                elif line.startswith("Present Students:"):
+                    present = [student.strip() for student in line.split(":")[1].split(",") if student.strip()]
+                elif line.startswith("Absent Students:"):
+                    absent = [student.strip() for student in line.split(":")[1].split(",") if student.strip()]
+
+            # Add the last session's attendance
+            if session_date:
+                attendance_records.append({"date": session_date, "present": present, "absent": absent})
+
+        return attendance_records
+
+    except Exception as e:
+        print(f"Error parsing attendance file: {e}")
+        return []
+
+# Calculate Attendance Percentages
+def calculate_statistics(attendance_records):
+    total_sessions = len(attendance_records)
+    if total_sessions == 0:
+        return {}
+
+    attendance = {}
+    for session in attendance_records:
+        for student in session["present"]:
+            attendance[student] = attendance.get(student, 0) + 1
+        for student in session["absent"]:
+            attendance.setdefault(student, 0)  # Ensure absent students are included
+
+    stats = {student: (count / total_sessions) * 100 for student, count in attendance.items()}
+    return stats
+
+# Function to generate PDF
+def generate_pdf(stats, output_file):
+    c = canvas.Canvas(output_file, pagesize=letter)
+    width, height = letter
+
+    # Title
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(220, height - 40, "Attendance Statistics")
+
+    # Column Headers
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(50, height - 80, "Above 75% Attendance")
+    c.drawString(350, height - 80, "Below 75% Attendance")
+
+    # Draw the lists of students
+    c.setFont("Helvetica", 10)
+
+    above_75 = [(student, percentage) for student, percentage in stats.items() if percentage >= 75]
+    below_75 = [(student, percentage) for student, percentage in stats.items() if percentage < 75]
+
+    y_position_above = height - 100
+    y_position_below = height - 100
+
+    # Printing Above 75% Attendance
+    for student, percentage in above_75:
+        c.drawString(50, y_position_above, f"{student}: {percentage:.2f}%")
+        y_position_above -= 15
+        if y_position_above < 50:
+            c.showPage()
+            c.setFont("Helvetica", 10)
+            y_position_above = height - 50
+
+    # Printing Below 75% Attendance
+    for student, percentage in below_75:
+        c.drawString(350, y_position_below, f"{student}: {percentage:.2f}%")
+        y_position_below -= 15
+        if y_position_below < 50:
+            c.showPage()
+            c.setFont("Helvetica", 10)
+            y_position_below = height - 50
+
+    c.save()
+
+# Route to render the main page and display files
+@app.route('/attendance_statistics', methods=['GET', 'POST'])
 def attendance_statistics():
+    if os.path.exists(folder_name) and os.path.isdir(folder_name):
+        files = [f for f in os.listdir(folder_name) if f.endswith('.txt')]
+    else:
+        files = []
 
-  return render_template('attendance_statistics.html')
+    if not files:
+        return render_template('attendance_statistics.html', files=[], message="No attendance files found.")
+
+    if request.method == 'POST':
+        selected_file = request.form.get('file')
+        if selected_file:
+            file_path = os.path.join(folder_name, selected_file)
+
+            records = parse_attendance(file_path)
+            if records:
+                statistics = calculate_statistics(records)
+                output_pdf = os.path.join(folder_name, f"attendance_report_{selected_file.split('.')[0]}.pdf")
+                generate_pdf(statistics, output_pdf)
+
+                return jsonify({
+                    'status': 'success',
+                    'file_name': f"attendance_report_{selected_file.split('.')[0]}.pdf"
+                })
+            else:
+                return jsonify({'status': 'error', 'message': 'Failed to parse attendance file.'})
+        return jsonify({'status': 'error', 'message': 'No file selected.'})
+
+    return render_template('attendance_statistics.html', files=files)
+
+
+
+# Route to download the PDF
+@app.route('/download/<filename>')
+def download(filename):
+    return send_from_directory(folder_name, filename, as_attachment=True)
 
 def get_google_sheet_id(subject, section, semester):
     """Retrieve the Google Sheet ID for the given semester, subject, and section."""

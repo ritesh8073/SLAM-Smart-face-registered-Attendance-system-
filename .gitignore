@@ -1,27 +1,17 @@
 # Ignore everything by default
 /*
 
-# But don't ignore app.py
+# But don't ignore specific files
 !app.py
-
 !clearsheet.py
-
-!att.py
-
-
-
+!attend_repo.py
 !delete_sheet.py
-
 !checksheet.py
 
-# Don't ignore the templates folder
+# Don't ignore the templates folder and its contents
 !templates/
-
-# Don't ignore the files inside the templates folder
 !templates/*
 
+# Don't ignore the static folder and its contents
 !static/
-
 !static/*
-
-
