@@ -36,7 +36,7 @@ Ensure you have the following installed:
 3. Run the application:
    ```sh
    python app.py
-   ![image](https://github.com/user-attachments/assets/dcd86f5a-6f6a-4dd5-9154-718b531fd4c1)
+![image](https://github.com/user-attachments/assets/dcd86f5a-6f6a-4dd5-9154-718b531fd4c1)
 ![image (1)](https://github.com/user-attachments/assets/5eace8bb-4410-4cd1-ab46-46f50953560c)
 ![image (2)](https://github.com/user-attachments/assets/65e0e812-c9ea-4c76-bd26-087d59acd4aa)
 ![image (3)](https://github.com/user-attachments/assets/6ebdb91c-9160-4921-9b91-8a8ec3589092)
